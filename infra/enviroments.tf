@@ -1,0 +1,58 @@
+data "aws_ami" "ubuntu" {
+  most_recent = true
+
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"]
+  }
+
+  owners = ["099720109477"]
+}
+
+resource "aws_instance" "staging" {
+  ami                         = data.aws_ami.ubuntu.id
+  instance_type               = "t2.micro"
+  vpc_security_group_ids      = [aws_security_group.allow_http.id]
+  subnet_id                   = local.subnet_ids[0]
+  associate_public_ip_address = true
+
+  tags = {
+    Name = "staging"
+  }
+}
+
+resource "aws_instance" "production" {
+  ami                         = data.aws_ami.ubuntu.id
+  instance_type               = "t2.micro"
+  vpc_security_group_ids      = [aws_security_group.allow_http.id]
+  subnet_id                   = local.subnet_ids[1]
+  associate_public_ip_address = true
+
+  tags = {
+    Name = "production"
+  }
+}
+
+resource "aws_security_group" "allow_http" {
+  name        = "allow_http"
+  description = "Allow HTTP inbound traffic and all outbound traffic"
+  vpc_id      = data.aws_vpc.default.id
+
+  tags = {
+    Name = "allow_http"
+  }
+}
+
+resource "aws_vpc_security_group_ingress_rule" "allow_http_ipv4" {
+  security_group_id = aws_security_group.allow_http.id
+  cidr_ipv4         = "0.0.0.0/0"
+  from_port         = 80
+  ip_protocol       = "tcp"
+  to_port           = 80
+}
+
+resource "aws_vpc_security_group_egress_rule" "allow_all_traffic" {
+  security_group_id = aws_security_group.allow_http.id
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "-1"
+}
