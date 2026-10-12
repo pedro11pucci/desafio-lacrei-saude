@@ -15,6 +15,9 @@ resource "aws_instance" "staging" {
   vpc_security_group_ids      = [aws_security_group.allow_http.id]
   subnet_id                   = local.subnet_ids[0]
   associate_public_ip_address = true
+  iam_instance_profile        = aws_iam_instance_profile.ec2.name
+  user_data                   = file("${path.module}/user_data.sh")
+  user_data_replace_on_change = true
 
   tags = {
     Name = "staging"
@@ -27,6 +30,9 @@ resource "aws_instance" "production" {
   vpc_security_group_ids      = [aws_security_group.allow_http.id]
   subnet_id                   = local.subnet_ids[1]
   associate_public_ip_address = true
+  iam_instance_profile        = aws_iam_instance_profile.ec2.name
+  user_data                   = file("${path.module}/user_data.sh")
+  user_data_replace_on_change = true
 
   tags = {
     Name = "production"

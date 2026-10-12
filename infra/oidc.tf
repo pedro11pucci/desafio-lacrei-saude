@@ -85,3 +85,39 @@ resource "aws_iam_role_policy" "github_ecr_push" {
 
   policy = data.aws_iam_policy_document.github_ecr_push.json
 }
+
+data "aws_iam_policy_document" "github_ssm_deploy" {
+  statement {
+    sid    = "SendDeployCommand"
+    effect = "Allow"
+
+    actions = [
+      "ssm:SendCommand"
+    ]
+
+    resources = [
+      "arn:aws:ssm:us-east-1::document/AWS-RunShellScript",
+      aws_instance.staging.arn,
+      aws_instance.production.arn
+    ]
+  }
+
+  statement {
+    sid    = "ReadDeployCommandResult"
+    effect = "Allow"
+
+    actions = [
+      "ssm:GetCommandInvocation"
+    ]
+
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "github_ssm_deploy" {
+  name = "lacrei-ssm-deploy"
+
+  role = aws_iam_role.github_actions.id
+
+  policy = data.aws_iam_policy_document.github_ssm_deploy.json
+}
