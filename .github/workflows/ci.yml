@@ -1,0 +1,24 @@
+name: CI/CD
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t lacrei:test .
+
+      - name: Start container
+        run: docker run -d --name lacrei-test -p 3000:3000 lacrei:test
+
+      - name: Check status endpoint
+        run: curl --fail --retry 10 --retry-delay 2 --retry-connrefused http://localhost:3000/status
