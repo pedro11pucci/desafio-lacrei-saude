@@ -40,22 +40,9 @@ O `Dockerfile` usa `node:22-alpine` e define um `HEALTHCHECK` que consulta `/sta
 
 ## 2. Arquitetura
 
-```mermaid
-flowchart TD
-    DEV["Push / Pull Request na master"] --> CI["GitHub Actions — CI"]
-    CI --> TEST["Build e teste do container"]
-    TEST -->|Push na master, testes OK| ECR["Amazon ECR — lacrei-api:SHA"]
-    ECR --> CD["GitHub Actions — CD"]
-    CD -->|AWS SSM Run Command| STG["EC2 Staging — Docker"]
-    STG -->|Deploy e validação concluídos| PROD["EC2 Production — Docker"]
-    ECR -.->|docker pull| STG
-    ECR -.->|docker pull| PROD
-    STG --> LOGS["CloudWatch Logs — /lacrei/deploy"]
-    PROD --> LOGS
-    STG --> METRICS["CloudWatch — métricas e alarmes EC2"]
-    PROD --> METRICS
-    CD -->|Opcional| SNS["Amazon SNS — SMS de sucesso"]
-```
+
+<img width="1536" height="1024" alt="CI_CD Pipeline com Deploy AWS" src="https://github.com/user-attachments/assets/8e8f7b29-c25c-4f11-81d5-9b07522d3f5d" />
+
 
 | Componente | Responsabilidade |
 | --- | --- |
@@ -67,6 +54,9 @@ flowchart TD
 | SSM | Executar comandos remotamente, sem SSH |
 | CloudWatch | Logs do SSM, dashboard e alarmes de infraestrutura |
 | SNS | SMS opcional ao final de um deploy bem-sucedido |
+
+
+<img width="1536" height="1024" alt="AWS VPC Architecture with EC2 Monitoring" src="https://github.com/user-attachments/assets/121d0a95-55bf-4597-b783-23be22f02690" />
 
 
 ## 3. Setup dos ambientes AWS
@@ -225,12 +215,6 @@ Os alarmes existem no CloudWatch, mas o código fornecido **não associa ações
 | Logs de deploy acessíveis | ✅ | GitHub Actions e CloudWatch |
 | Rollback em produção | ✅ | image_tag do ECR e run workflow do Github Actions |
 | HTTPS/TLS público | ❌ | **Não implementado** |
-
-### HTTPS/TLS — requisito não atendido
-
-O projeto publica HTTP na porta 80, **sem certificado TLS e sem domínio configurado**. Isso não atende ao requisito obrigatório de HTTPS/TLS do desafio e **não deve ser tratado como configuração de produção segura**.
-
-**Evolução proposta:** associar um domínio aos ambientes e utilizar um **Application Load Balancer com certificado do AWS Certificate Manager (ACM)**, disponibilizando HTTPS/443, redirecionando HTTP para HTTPS e restringindo o acesso às EC2 para aceitar tráfego da camada de balanceamento. Uma alternativa de menor complexidade operacional, dependendo do domínio e do cenário, seria um reverse proxy com TLS.
 
 ## 8. Problemas técnicos, decisões e aprendizados
 
