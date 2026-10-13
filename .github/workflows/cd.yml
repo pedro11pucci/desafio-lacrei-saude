@@ -2,6 +2,10 @@ name: CD
 
 on:
   workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "ECR image tag to deploy. Defaults to this workflow commit SHA."
+        required: false
   workflow_run:
     workflows: ["CI"]
     types:
@@ -12,7 +16,7 @@ on:
 jobs:
   deploy:
     name: Deploy to EC2 instances
-    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') }}
     runs-on: ubuntu-latest
 
     permissions:
@@ -22,7 +26,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -33,7 +37,7 @@ jobs:
 
       - name: Deploy to staging and production via SSM
         env:
-          IMAGE_TAG: ${{ github.event.workflow_run.head_sha }}
+          IMAGE_TAG: ${{ github.event.workflow_run.head_sha || inputs.image_tag || github.sha }}
         run: |
           set -euo pipefail
 
@@ -49,10 +53,51 @@ jobs:
 
             echo "Deploying $IMAGE_TAG to $environment"
 
+            local instance_ids
+            instance_ids=$(aws ec2 describe-instances \
+              --region us-east-1 \
+              --filters "Name=tag:Name,Values=$environment" "Name=instance-state-name,Values=running" \
+              --query "Reservations[].Instances[].InstanceId" \
+              --output text)
+
+            if [ -z "$instance_ids" ] || [ "$instance_ids" = "None" ]; then
+              echo "No running EC2 instance found for tag Name=$environment"
+              exit 1
+            fi
+
+            echo "EC2 instance(s) for $environment: $instance_ids"
+
+            local instance_ids_csv
+            instance_ids_csv=$(tr -s '[:space:]' ',' <<< "$instance_ids" | sed 's/,$//')
+
+            local ssm_ready_count
+            local instance_count
+            instance_count=$(wc -w <<< "$instance_ids")
+
+            for attempt in {1..24}; do
+              ssm_ready_count=$(aws ssm describe-instance-information \
+                --region us-east-1 \
+                --filters "Key=InstanceIds,Values=$instance_ids_csv" \
+                --query 'length(InstanceInformationList[?PingStatus==`Online`])' \
+                --output text)
+
+              if [ "$ssm_ready_count" -eq "$instance_count" ]; then
+                break
+              fi
+
+              echo "Waiting for $environment instance(s) to be online in SSM ($ssm_ready_count/$instance_count)"
+              sleep 10
+            done
+
+            if [ "$ssm_ready_count" -ne "$instance_count" ]; then
+              echo "$environment instance(s) are not online in SSM. Check SSM Agent and the EC2 IAM instance profile."
+              exit 1
+            fi
+
             local send_command_output
             send_command_output=$(aws ssm send-command \
               --region us-east-1 \
-              --targets "Key=tag:Name,Values=$environment" \
+              --instance-ids $instance_ids \
               --document-name "AWS-RunShellScript" \
               --parameters file://ssm-parameters.json \
               --max-concurrency "1" \

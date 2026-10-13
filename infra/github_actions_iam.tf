@@ -48,6 +48,18 @@ resource "aws_iam_user_policy" "github_ecr_push" {
 
 data "aws_iam_policy_document" "github_ssm_deploy" {
   statement {
+    sid    = "FindDeployInstances"
+    effect = "Allow"
+
+    actions = [
+      "ec2:DescribeInstances",
+      "ssm:DescribeInstanceInformation"
+    ]
+
+    resources = ["*"]
+  }
+
+  statement {
     sid    = "SendDeployCommand"
     effect = "Allow"
 
