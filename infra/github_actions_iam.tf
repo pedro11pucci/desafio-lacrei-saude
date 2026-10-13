@@ -94,3 +94,24 @@ resource "aws_iam_user_policy" "github_ssm_deploy" {
 
   policy = data.aws_iam_policy_document.github_ssm_deploy.json
 }
+
+data "aws_iam_policy_document" "github_sns_notifications" {
+  statement {
+    sid    = "PublishDeployNotification"
+    effect = "Allow"
+
+    actions = [
+      "sns:Publish"
+    ]
+
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_user_policy" "github_sns_notifications" {
+  name = "lacrei-sns-notifications"
+
+  user = aws_iam_user.github_actions.name
+
+  policy = data.aws_iam_policy_document.github_sns_notifications.json
+}

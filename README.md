@@ -7,6 +7,7 @@ O workflow usa credenciais AWS salvas no GitHub Secrets para autenticar e public
 
 - `AWS_ACCESS_KEY_ID`
 - `AWS_SECRET_ACCESS_KEY`
+- `SNS_PHONE_NUMBER` opcional, em formato E.164, para receber SMS de deploy. Exemplo: `+5511999999999`
 
 Essas chaves devem pertencer ao usuário IAM `lacrei-github-actions`, criado pela infra em `infra/github_actions_iam.tf`.
 O provider AWS do Terraform também usa essas variáveis de ambiente automaticamente quando a infra roda no CI.

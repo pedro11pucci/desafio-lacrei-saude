@@ -150,3 +150,20 @@ jobs:
 
           deploy_environment staging
           deploy_environment production
+
+      - name: Notify successful deploy via SNS
+        env:
+          SNS_PHONE_NUMBER: ${{ secrets.SNS_PHONE_NUMBER }}
+          IMAGE_TAG: ${{ github.event.workflow_run.head_sha || inputs.image_tag || github.sha }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$SNS_PHONE_NUMBER" ]; then
+            echo "SNS_PHONE_NUMBER is not configured. Skipping deploy notification."
+            exit 0
+          fi
+
+          aws sns publish \
+            --region us-east-1 \
+            --phone-number "$SNS_PHONE_NUMBER" \
+            --message "Deploy Lacrei finalizado com sucesso. Imagem: $IMAGE_TAG. Ambientes: staging e production."
