@@ -67,7 +67,8 @@ data "aws_iam_policy_document" "github_ssm_deploy" {
     effect = "Allow"
 
     actions = [
-      "ssm:GetCommandInvocation"
+      "ssm:GetCommandInvocation",
+      "ssm:ListCommandInvocations"
     ]
 
     resources = ["*"]

@@ -1,17 +1,16 @@
-
 name: CD
 
 on:
   workflow_run:
-    workflows: ["CI"]
+    workflows: ["CI/CD"]
     types:
       - completed
     branches:
       - master
 
 jobs:
-  deploy-staging:
-    name: Deploy to Staging
+  deploy:
+    name: Deploy to EC2 instances
     if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
     runs-on: ubuntu-latest
 
@@ -31,24 +30,72 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
-      - name: Check deployment image
+      - name: Deploy to staging and production via SSM
         env:
           IMAGE_TAG: ${{ github.event.workflow_run.head_sha }}
         run: |
-          echo "Deploying to staging: $IMAGE_TAG"
-          aws sts get-caller-identity
+          set -euo pipefail
 
-  deploy-production:
-    name: Deploy to Production
-    needs: deploy-staging
-    runs-on: ubuntu-latest
+          SCRIPT_BASE64=$(base64 -w 0 .github/workflows/deploy.sh)
 
-    permissions:
-      contents: read
+          COMMAND="echo '$SCRIPT_BASE64' | base64 -d > /tmp/deploy.sh && bash /tmp/deploy.sh '$IMAGE_TAG'"
 
-    steps:
-      - name: Check production image
-        env:
-          IMAGE_TAG: ${{ github.event.workflow_run.head_sha }}
-        run: |
-          echo "Deploying to production: $IMAGE_TAG"
+          jq -n --arg command "$COMMAND" \
+            '{commands: [$command]}' > ssm-parameters.json
+
+          deploy_environment() {
+            local environment="$1"
+
+            echo "Deploying $IMAGE_TAG to $environment"
+
+            local send_command_output
+            send_command_output=$(aws ssm send-command \
+              --region us-east-1 \
+              --targets "Key=tag:Name,Values=$environment" \
+              --document-name "AWS-RunShellScript" \
+              --parameters file://ssm-parameters.json \
+              --max-concurrency "1" \
+              --max-errors "0" \
+              --query "Command.{Id:CommandId,TargetCount:TargetCount}" \
+              --output json)
+
+            local command_id
+            command_id=$(jq -r '.Id' <<< "$send_command_output")
+
+            local target_count
+            target_count=$(jq -r '.TargetCount' <<< "$send_command_output")
+
+            if [ "$target_count" -eq 0 ]; then
+              echo "No SSM managed instance found for tag Name=$environment"
+              exit 1
+            fi
+
+            echo "SSM Command ID for $environment: $command_id"
+
+            while true; do
+              invocations=$(aws ssm list-command-invocations \
+                --region us-east-1 \
+                --command-id "$command_id" \
+                --details \
+                --output json)
+
+              invocation_count=$(jq '.CommandInvocations | length' <<< "$invocations")
+              pending_count=$(jq '[.CommandInvocations[].Status | select(. == "Pending" or . == "InProgress" or . == "Delayed")] | length' <<< "$invocations")
+              failed_count=$(jq '[.CommandInvocations[].Status | select(. == "Cancelled" or . == "TimedOut" or . == "Failed" or . == "Cancelling")] | length' <<< "$invocations")
+
+              if [ "$invocation_count" -eq "$target_count" ] && [ "$pending_count" -eq 0 ]; then
+                echo "$invocations" | jq -r '.CommandInvocations[] | "Instance: \(.InstanceId)\nStatus: \(.Status)\nOutput:\n\(.CommandPlugins[].Output)\n"'
+
+                if [ "$failed_count" -gt 0 ]; then
+                  exit 1
+                fi
+
+                break
+              fi
+
+              sleep 5
+            done
+          }
+
+          deploy_environment staging
+          deploy_environment production
