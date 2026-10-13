@@ -43,15 +43,19 @@ jobs:
 
           SCRIPT_BASE64=$(base64 -w 0 .github/workflows/deploy.sh)
 
-          COMMAND="echo '$SCRIPT_BASE64' | base64 -d > /tmp/deploy.sh && bash /tmp/deploy.sh '$IMAGE_TAG'"
-
-          jq -n --arg command "$COMMAND" \
-            '{commands: [$command]}' > ssm-parameters.json
-
           deploy_environment() {
             local environment="$1"
 
             echo "Deploying $IMAGE_TAG to $environment"
+
+            local command
+            command="echo '$SCRIPT_BASE64' | base64 -d > /tmp/deploy.sh && bash /tmp/deploy.sh '$IMAGE_TAG'"
+
+            local parameters_file
+            parameters_file="ssm-parameters-$environment.json"
+
+            jq -n --arg command "$command" \
+              '{commands: [$command]}' > "$parameters_file"
 
             local instance_ids
             instance_ids=$(aws ec2 describe-instances \
@@ -99,7 +103,8 @@ jobs:
               --region us-east-1 \
               --instance-ids $instance_ids \
               --document-name "AWS-RunShellScript" \
-              --parameters file://ssm-parameters.json \
+              --parameters "file://$parameters_file" \
+              --cloud-watch-output-config "CloudWatchOutputEnabled=true,CloudWatchLogGroupName=/lacrei/deploy" \
               --max-concurrency "1" \
               --max-errors "0" \
               --query "Command.{Id:CommandId,TargetCount:TargetCount}" \
