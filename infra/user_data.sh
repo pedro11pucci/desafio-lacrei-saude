@@ -4,7 +4,7 @@ set -e
 export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
-apt-get install -y docker.io snapd
+apt-get install -y awscli docker.io snapd
 
 systemctl enable --now docker
 systemctl enable --now snapd.socket
