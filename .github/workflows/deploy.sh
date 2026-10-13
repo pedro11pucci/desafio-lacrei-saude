@@ -10,6 +10,17 @@ IMAGE="${ECR_REGISTRY}/lacrei-api:${IMAGE_TAG}"
 
 echo "Deploying image: $IMAGE"
 
+dump_container_debug() {
+  echo "Container status:"
+  docker ps -a --filter "name=lacrei-api"
+
+  echo "Container inspect:"
+  docker inspect lacrei-api 2>/dev/null || true
+
+  echo "Container logs:"
+  docker logs --tail 100 lacrei-api 2>/dev/null || true
+}
+
 wait_for_apt() {
   if ! command -v fuser >/dev/null 2>&1; then
     return 0
@@ -74,8 +85,39 @@ docker run -d \
   -p 80:3000 \
   "$IMAGE"
 
-curl --fail --retry 10 --retry-delay 2 \
+for attempt in {1..30}; do
+  health_status=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' lacrei-api)
+
+  if [ "$health_status" = "healthy" ] || [ "$health_status" = "running" ]; then
+    break
+  fi
+
+  if [ "$health_status" = "unhealthy" ]; then
+    dump_container_debug
+    exit 1
+  fi
+
+  if [ "$health_status" = "exited" ] || [ "$health_status" = "dead" ]; then
+    dump_container_debug
+    exit 1
+  fi
+
+  echo "Waiting for container health ($health_status)..."
+  sleep 2
+done
+
+health_status=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' lacrei-api)
+
+if [ "$health_status" != "healthy" ] && [ "$health_status" != "running" ]; then
+  dump_container_debug
+  exit 1
+fi
+
+if ! curl --fail --retry 30 --retry-delay 2 --retry-all-errors --max-time 5 \
   --retry-connrefused \
-  http://localhost/status
+  http://localhost/status; then
+  dump_container_debug
+  exit 1
+fi
 
 echo "Deploy completed successfully!"
