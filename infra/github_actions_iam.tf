@@ -1,49 +1,9 @@
-resource "aws_iam_openid_connect_provider" "github" {
-  url = "https://token.actions.githubusercontent.com"
-
-  client_id_list = [
-    "sts.amazonaws.com"
-  ]
-}
-
-data "aws_iam_policy_document" "github_actions_trust" {
-  statement {
-    effect = "Allow"
-
-    actions = [
-      "sts:AssumeRoleWithWebIdentity"
-    ]
-
-    principals {
-      type = "Federated"
-
-      identifiers = [
-        aws_iam_openid_connect_provider.github.arn
-      ]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "token.actions.githubusercontent.com:aud"
-
-      values = ["sts.amazonaws.com"]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "token.actions.githubusercontent.com:sub"
-
-      values = [
-        "repo:pedro11pucci@56747051/desafio-lacrei-saude@1410882179:ref:refs/heads/master"
-      ]
-    }
-  }
-}
-
-resource "aws_iam_role" "github_actions" {
+resource "aws_iam_user" "github_actions" {
   name = "lacrei-github-actions"
 
-  assume_role_policy = data.aws_iam_policy_document.github_actions_trust.json
+  tags = {
+    Name = "lacrei-github-actions"
+  }
 }
 
 data "aws_iam_policy_document" "github_ecr_push" {
@@ -78,10 +38,10 @@ data "aws_iam_policy_document" "github_ecr_push" {
   }
 }
 
-resource "aws_iam_role_policy" "github_ecr_push" {
+resource "aws_iam_user_policy" "github_ecr_push" {
   name = "lacrei-ecr-push"
 
-  role = aws_iam_role.github_actions.id
+  user = aws_iam_user.github_actions.name
 
   policy = data.aws_iam_policy_document.github_ecr_push.json
 }
@@ -114,10 +74,10 @@ data "aws_iam_policy_document" "github_ssm_deploy" {
   }
 }
 
-resource "aws_iam_role_policy" "github_ssm_deploy" {
+resource "aws_iam_user_policy" "github_ssm_deploy" {
   name = "lacrei-ssm-deploy"
 
-  role = aws_iam_role.github_actions.id
+  user = aws_iam_user.github_actions.name
 
   policy = data.aws_iam_policy_document.github_ssm_deploy.json
 }

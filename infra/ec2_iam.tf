@@ -17,7 +17,7 @@ data "aws_iam_policy_document" "ec2_trust" {
 }
 
 resource "aws_iam_role" "ec2" {
-  name = "lacrei-ec2"
+  name = "lacrei-ec2-user"
 
   assume_role_policy = data.aws_iam_policy_document.ec2_trust.json
 }
@@ -29,7 +29,7 @@ resource "aws_iam_role_policy_attachment" "ec2_ecr_pull" {
 }
 
 resource "aws_iam_instance_profile" "ec2" {
-  name = "lacrei-ec2-profile"
+  name = "lacrei-ec2-user-profile"
 
   role = aws_iam_role.ec2.name
 }
