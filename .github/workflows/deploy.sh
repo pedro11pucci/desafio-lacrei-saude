@@ -26,10 +26,6 @@ wait_for_apt() {
 ensure_packages() {
   local missing_packages=()
 
-  if ! command -v aws >/dev/null 2>&1; then
-    missing_packages+=("awscli")
-  fi
-
   if ! command -v docker >/dev/null 2>&1; then
     missing_packages+=("docker.io")
   fi
@@ -38,12 +34,26 @@ ensure_packages() {
     missing_packages+=("curl")
   fi
 
+  if ! command -v unzip >/dev/null 2>&1; then
+    missing_packages+=("unzip")
+  fi
+
   if [ "${#missing_packages[@]}" -gt 0 ]; then
     export DEBIAN_FRONTEND=noninteractive
     wait_for_apt
     apt-get update
     wait_for_apt
-    apt-get install -y "${missing_packages[@]}"
+    apt-get install -y ca-certificates "${missing_packages[@]}"
+  fi
+
+  if ! command -v aws >/dev/null 2>&1; then
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+
+    curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "$tmp_dir/awscliv2.zip"
+    unzip -q "$tmp_dir/awscliv2.zip" -d "$tmp_dir"
+    "$tmp_dir/aws/install" --update
+    rm -rf "$tmp_dir"
   fi
 
   systemctl enable --now docker
