@@ -7,5 +7,5 @@ app.listen(3000, () => {
 })
 
 app.get("/status", (req, res) => {
-  res.status(200).send(JSON.stringify({ status: "ok" }))
+  res.status(200).send(ok)
 })
