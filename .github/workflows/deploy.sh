@@ -88,7 +88,7 @@ docker run -d \
   --log-driver=awslogs \
   --log-opt awslogs-region=us-east-1 \
   --log-opt awslogs-group="$LOG_GROUP" \
-  --log-opt awslogs-upstream=lacrei-api \
+  --log-opt awslogs-stream=lacrei-api \
   "$IMAGE"
 
 for attempt in {1..30}; do
