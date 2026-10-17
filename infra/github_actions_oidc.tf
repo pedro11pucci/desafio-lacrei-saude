@@ -34,7 +34,7 @@ data "aws_iam_policy_document" "github_oidc_trust" {
       variable = "token.actions.githubusercontent.com:sub"
 
       values = [
-        "repo:pedro11pucci/desafio-lacrei-saude:ref:refs/heads/master"
+        "repo:pedro11pucci@56747051/desafio-lacrei-saude@1410882179:ref:refs/heads/master"
       ]
     }
   }
