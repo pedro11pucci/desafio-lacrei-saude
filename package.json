@@ -4,7 +4,8 @@
   "description": "Repositório do desafio técnico da Lacrei Saúde",
   "main": "index.js",
   "scripts": {
-    "test": "jest"
+    "test": "jest",
+    "prepare": "husky"
   },
   "repository": {
     "type": "git",
