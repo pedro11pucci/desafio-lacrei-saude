@@ -5,12 +5,21 @@ locals {
   }
 }
 
-resource "aws_cloudwatch_log_group" "deploy" {
-  name              = "/lacrei/deploy"
-  retention_in_days = 14
+resource "aws_cloudwatch_log_group" "staging" {
+  name              = "/lacrei/staging"
+  retention_in_days = 7
 
   tags = {
-    Name = "/lacrei/deploy"
+    Name = "/lacrei/staging"
+  }
+}
+
+resource "aws_cloudwatch_log_group" "production" {
+  name              = "/lacrei/production"
+  retention_in_days = 30
+
+  tags = {
+    Name = "/lacrei/production"
   }
 }
 

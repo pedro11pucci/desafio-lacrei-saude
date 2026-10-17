@@ -16,6 +16,22 @@ data "aws_iam_policy_document" "ec2_trust" {
   }
 }
 
+data "aws_iam_policy_document" "ec2_cloudwatch_logs" {
+  statement {
+    effect = "Allow"
+
+    actions = [
+      "logs:CreateLogStream",
+      "logs:PutLogEvents"
+    ]
+
+    resources = [
+      aws_cloudwatch_log_group.staging.arn,
+      aws_cloudwatch_log_group.production.arn
+    ]
+  }
+}
+
 resource "aws_iam_role" "ec2" {
   name = "lacrei-ec2-user"
 
@@ -38,4 +54,11 @@ resource "aws_iam_role_policy_attachment" "ec2_ssm" {
   role = aws_iam_role.ec2.name
 
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+resource "aws_iam_role_policy" "ec2_cloudwatch_logs" {
+  name = "lacrei-ec2-cloudwatch-logs"
+  role = aws_iam_role.ec2.id
+
+  policy = data.aws_iam_policy_document.ec2_cloudwatch_logs.json
 }

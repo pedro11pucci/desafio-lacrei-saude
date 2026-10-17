@@ -19,6 +19,10 @@ resource "aws_instance" "staging" {
   user_data                   = file("${path.module}/user_data.sh")
   user_data_replace_on_change = true
 
+  lifecycle {
+    ignore_changes = [ami]
+  }
+
   tags = {
     Name = "staging"
   }
@@ -33,6 +37,10 @@ resource "aws_instance" "production" {
   iam_instance_profile        = aws_iam_instance_profile.ec2.name
   user_data                   = file("${path.module}/user_data.sh")
   user_data_replace_on_change = true
+
+  lifecycle {
+    ignore_changes = [ami]
+  }
 
   tags = {
     Name = "production"

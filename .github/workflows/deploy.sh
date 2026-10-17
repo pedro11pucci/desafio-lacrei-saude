@@ -2,6 +2,8 @@
 set -euo pipefail
 
 IMAGE_TAG="$1"
+ENVIRONMENT="$2"
+LOG_GROUP="/lacrei/$ENVIRONMENT"
 
 AWS_REGION="us-east-1"
 AWS_ACCOUNT_ID="892013083652"
@@ -83,6 +85,10 @@ docker run -d \
   --name lacrei-api \
   --restart unless-stopped \
   -p 80:3000 \
+  --log-driver=awslogs \
+  --log-opt awslogs-region=us-east-1 \
+  --log-opt awslogs-group="$LOG_GROUP" \
+  --log-opt awslogs-upstream=lacrei-api \
   "$IMAGE"
 
 for attempt in {1..30}; do

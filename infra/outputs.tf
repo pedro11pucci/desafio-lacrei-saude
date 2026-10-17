@@ -1,5 +1,9 @@
-output "deploy_log_group" {
-  value = aws_cloudwatch_log_group.deploy.name
+output "production_log_group" {
+  value = aws_cloudwatch_log_group.production.name
+}
+
+output "staging_log_group" {
+  value = aws_cloudwatch_log_group.staging.name
 }
 
 output "cloudwatch_dashboard_name" {
