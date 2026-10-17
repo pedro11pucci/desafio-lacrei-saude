@@ -4,7 +4,7 @@ WORKDIR /app
 
 COPY package*.json ./
 
-RUN HUSKY=0 npm ci --omit=dev
+RUN npm ci --omit=dev --ignore-scripts
 
 COPY --chown=node:node . .
 
