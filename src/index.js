@@ -3,7 +3,7 @@ const express = require("express")
 const app = express()
 
 app.get("/status", (req, res) => {
-  res.status(200).json({ status: "ok" })
+  res.status(200).json({ environment: process.env.APP_ENV, status: "ok" })
 })
 
 if (require.main === module) {
