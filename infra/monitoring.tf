@@ -40,6 +40,8 @@ resource "aws_cloudwatch_metric_alarm" "cpu_high" {
   dimensions = {
     InstanceId = each.value
   }
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
 }
 
 resource "aws_cloudwatch_metric_alarm" "status_check_failed" {
@@ -51,7 +53,7 @@ resource "aws_cloudwatch_metric_alarm" "status_check_failed" {
   evaluation_periods  = 2
   metric_name         = "StatusCheckFailed"
   namespace           = "AWS/EC2"
-  period              = 60
+  period              = 300
   statistic           = "Maximum"
   threshold           = 1
   treat_missing_data  = "notBreaching"
@@ -59,6 +61,8 @@ resource "aws_cloudwatch_metric_alarm" "status_check_failed" {
   dimensions = {
     InstanceId = each.value
   }
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
 }
 
 resource "aws_cloudwatch_dashboard" "api" {
