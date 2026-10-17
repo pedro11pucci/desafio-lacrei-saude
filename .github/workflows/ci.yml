@@ -15,6 +15,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Run Jest tests
+        run: |
+          npm ci
+          npm test
+
       - name: Build Docker image
         run: docker build -t lacrei:test .
 
