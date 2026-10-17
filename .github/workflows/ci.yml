@@ -25,7 +25,7 @@ jobs:
 
       - name: Start and test container
         run: |
-          docker run -d --name lacrei-test -p 3000:3000 lacrei:test
+          docker run -d --name lacrei-test -p 3000:3000 -e APP_ENV="ci test" lacrei:test
           timeout 30s bash -c 'until [ "$(docker inspect --format="{{.State.Health.Status}}" lacrei-test)" = "healthy" ]; do sleep 1; done'
           curl --fail http://localhost:3000/status
 
