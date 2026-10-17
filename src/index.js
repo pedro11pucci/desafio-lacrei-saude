@@ -8,7 +8,7 @@ app.get("/status", (req, res) => {
 
 if (require.main === module) {
   app.listen(3000, () => {
-    console.log(`[${APP_ENV}] Server running on port 3000`)
+    console.log(`[${process.env.APP_ENV}] Server running on port 3000`)
   })
 }
 
