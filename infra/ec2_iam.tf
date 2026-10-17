@@ -26,8 +26,8 @@ data "aws_iam_policy_document" "ec2_cloudwatch_logs" {
     ]
 
     resources = [
-      aws_cloudwatch_log_group.staging.arn,
-      aws_cloudwatch_log_group.production.arn
+      "${aws_cloudwatch_log_group.staging.arn}:*",
+      "${aws_cloudwatch_log_group.production.arn}:*"
     ]
   }
 }

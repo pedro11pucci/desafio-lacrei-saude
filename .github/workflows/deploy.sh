@@ -85,6 +85,7 @@ docker run -d \
   --name lacrei-api \
   --restart unless-stopped \
   -p 80:3000 \
+  -e APP_ENV="$ENVIRONMENT$" \
   --log-driver=awslogs \
   --log-opt awslogs-region=us-east-1 \
   --log-opt awslogs-group="$LOG_GROUP" \
