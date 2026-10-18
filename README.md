@@ -59,14 +59,7 @@ O CD também pode ser disparado manualmente para uma tag de imagem já publicada
 
 ### Estrutura de cada ambiente
 
-```mermaid
-flowchart TD
-    U[Cliente HTTPS] --> C[Caddy - porta 443 e TLS automático]
-    C -->|Slot ativo| B[Blue - 127.0.0.1:3001]
-    C -.->|Slot alternativo| G[Green - 127.0.0.1:3002]
-    B --> A1[Aplicação Express - porta 3000]
-    G --> A2[Aplicação Express - porta 3000]
-```
+<img width="1774" height="887" alt="Arquitetura Blue-Green com Caddy e Docker" src="https://github.com/user-attachments/assets/ed280201-c6dc-447a-9aa3-b658271a8ad0" />
 
 O Caddy aponta para **um slot por vez**. O novo container é iniciado e validado na porta inativa; somente depois a configuração do proxy é alterada. O container anterior permanece disponível para rollback.
 
