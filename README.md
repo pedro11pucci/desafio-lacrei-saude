@@ -1,250 +1,277 @@
-# Desafio Técnico — Lacrei Saúde
+Infraestrutura como código e pipeline de CI/CD para uma API de demonstração em **Node.js/Express**, executada em dois ambientes na AWS: **staging** e **production**.
 
-Infraestrutura e pipeline CI/CD para uma API fictícia em Node.js, com implantação em **staging** e **production** na AWS.
-
-O projeto utiliza **Terraform** para provisionamento, **Docker** para execução da aplicação, **Amazon ECR** como registro de imagens, **GitHub Actions** para CI/CD e **AWS Systems Manager (SSM)** para executar deploys nas instâncias EC2 sem acesso SSH.
+A solução utiliza **Terraform**, **Docker**, **Amazon ECR**, **GitHub Actions**, **AWS Systems Manager (SSM)** e **Caddy**. As aplicações são publicadas por **HTTPS**, com deploy **blue-green**, validação de saúde e **rollback manual** por ambiente.
 
 ## 1. Aplicação
 
-API Express com um endpoint de verificação:
+A API implementa um endpoint de verificação de saúde:
 
 ```http
 GET /status
 ```
 
-Resposta esperada (`HTTP 200`):
+Com a variável `APP_ENV=staging`, por exemplo, a resposta esperada é `HTTP 200`:
 
 ```json
-{"status":"ok"}
+{
+  "environment": "staging",
+  "status": "ok"
+}
 ```
 
-A aplicação escuta na porta **3000**. O container expõe essa porta e a EC2 publica o serviço na porta **80** (`80:3000`).
+O valor de `environment` vem de `APP_ENV`. Quando essa variável não está definida, o campo pode ser omitido no JSON.
+
+A aplicação escuta na porta **3000 dentro do container**. Nas EC2, cada container publica essa porta apenas no loopback (`127.0.0.1:3001` ou `127.0.0.1:3002`); o acesso externo é feito pelo **Caddy na porta 443/HTTPS**.
 
 ### Executar localmente
 
-Requisitos: Docker.
+Requisito: Docker instalado.
 
 ```bash
 docker build -t lacrei-api:local .
-docker run -d --name lacrei-local -p 3000:3000 lacrei-api:local
-curl --fail http://localhost:3000/status
-```
-
-Para remover o container:
-
-```bash
+docker run -d --name lacrei-local -p 127.0.0.1:3000:3000 -e APP_ENV=local lacrei-api:local
+curl --fail http://127.0.0.1:3000/status
 docker rm -f lacrei-local
 ```
 
-O `Dockerfile` usa `node:22-alpine` e define um `HEALTHCHECK` que consulta `/status`.
+O `Dockerfile` parte de `node:22-alpine`, instala dependências de execução, roda o processo com **`USER node`** (sem privilégios de root) e define um `HEALTHCHECK` que consulta `/status`.
+
+### Testes automatizados
+
+Os testes usam **Jest + Supertest** e são executados com:
+
+```bash
+npm ci
+npm test
+```
+
+Os seis casos atualmente implementados em `tests/index.test.js` verificam: retorno HTTP 200, JSON com `status: "ok"`, identificação dos ambientes `staging` e `production`, resposta 404 para uma rota inexistente e rejeição de `POST /status` (404).
+
+São testes HTTP da aplicação Express, sem levantar uma EC2. O pipeline também executa um teste do container Docker e seu health check.
 
 ## 2. Arquitetura
 
+### Fluxo de entrega
 
-<img width="1536" height="1024" alt="CI_CD Pipeline com Deploy AWS" src="https://github.com/user-attachments/assets/8e8f7b29-c25c-4f11-81d5-9b07522d3f5d" />
+<img width="1774" height="887" alt="1" src="https://github.com/user-attachments/assets/1c1927ad-d669-48e3-a534-993385613e7f" />
 
+O CD também pode ser disparado manualmente para uma tag de imagem já publicada. O rollback tem um **workflow separado**, com seleção do ambiente.
+
+### Estrutura de cada ambiente
+
+```mermaid
+flowchart TD
+    U[Cliente HTTPS] --> C[Caddy - porta 443 e TLS automático]
+    C -->|Slot ativo| B[Blue - 127.0.0.1:3001]
+    C -.->|Slot alternativo| G[Green - 127.0.0.1:3002]
+    B --> A1[Aplicação Express - porta 3000]
+    G --> A2[Aplicação Express - porta 3000]
+```
+
+O Caddy aponta para **um slot por vez**. O novo container é iniciado e validado na porta inativa; somente depois a configuração do proxy é alterada. O container anterior permanece disponível para rollback.
 
 | Componente | Responsabilidade |
 | --- | --- |
-| Terraform | Declarar e provisionar recursos AWS |
-| EC2 `staging` e `production` | Hospedar os containers Docker |
-| ECR `lacrei-api` | Armazenar imagens com tags imutáveis |
-| GitHub Actions CI | Validar container, construir e publicar imagem |
-| GitHub Actions CD | Selecionar versão, localizar EC2 e orquestrar deploy |
-| SSM | Executar comandos remotamente, sem SSH |
-| CloudWatch | Logs do SSM, dashboard e alarmes de infraestrutura |
-| SNS | SMS opcional ao final de um deploy bem-sucedido |
+| Terraform | Provisionar EC2, rede, IAM, ECR, logs, métricas, alarmes e SNS |
+| EC2 `staging` e `production` | Hospedar Docker e Caddy em instâncias independentes (`t2.micro`) |
+| Amazon ECR (`lacrei-api`) | Armazenar imagens identificadas pelo SHA, com tags imutáveis e `scan_on_push` |
+| GitHub Actions CI | Executar testes, construir/testar a imagem e publicá-la no ECR |
+| GitHub Actions CD | Implantar a mesma imagem em staging e depois production |
+| GitHub Actions Rollback | Alternar manualmente para o slot anterior de um ambiente escolhido |
+| OIDC + IAM | Autenticar os workflows na AWS sem access keys permanentes |
+| AWS SSM | Executar scripts nas instâncias sem expor acesso SSH |
+| Caddy | Receber HTTPS, gerenciar certificados TLS e encaminhar o tráfego ao slot ativo |
+| CloudWatch | Receber logs da aplicação, apresentar métricas e avaliar alarmes |
+| SNS | Enviar alertas de infraestrutura por e-mail |
 
+<img width="1536" height="1024" alt="Untitled" src="https://github.com/user-attachments/assets/62636a17-ee44-48d0-b86a-80bff5b93801" />
 
-<img width="1536" height="1024" alt="AWS VPC Architecture with EC2 Monitoring" src="https://github.com/user-attachments/assets/121d0a95-55bf-4597-b783-23be22f02690" />
+## 3. Ambientes e provisionamento
 
+### Endereços públicos
 
-## 3. Setup dos ambientes AWS
+| Ambiente | Endpoint |
+| --- | --- |
+| Staging | [https://pedro-lacrei-staging.duckdns.org/status](https://pedro-lacrei-staging.duckdns.org/status) |
+| Production | [https://pedro-lacrei-production.duckdns.org/status](https://pedro-lacrei-production.duckdns.org/status) |
+
+Os subdomínios são administrados pelo **DuckDNS**. O Caddy gerencia automaticamente os certificados TLS. A configuração DNS depende dos IPs públicos atuais das EC2.
 
 ### Pré-requisitos
 
-- Conta AWS e permissões para criar os recursos descritos no Terraform;
-- AWS CLI configurado localmente;
-- Terraform compatível com a versão declarada em `infra/terraform.tf`;
-- Repositório no GitHub com GitHub Actions habilitado.
+- Conta AWS com permissões para provisionar os recursos;
+- AWS CLI e Terraform configurados (Terraform `>= 1.2`, provider AWS `~> 5.92`);
+- Repositório com GitHub Actions habilitado;
+- VPC padrão e subnets padrão disponíveis em `us-east-1`;
+- Domínios DuckDNS configurados para apontar para as respectivas EC2.
+### Criar ou atualizar a infraestrutura
 
-O projeto utiliza a **VPC padrão** e subnets padrão da região `us-east-1`; é necessário que elas existam na conta.
-
-### Provisionamento com Terraform
+A partir da raiz do repositório:
 
 ```bash
 cd infra
 terraform init
+export TF_VAR_alert_email="seu-email@exemplo.com"
 terraform plan
 terraform apply
 ```
 
-Se utilizar um perfil nomeado do AWS CLI:
+Caso utilize um perfil nomeado do AWS CLI, defina `AWS_PROFILE` antes desses comandos.
+
+Os arquivos Terraform provisionam, entre outros recursos:
+
+- Duas EC2 Ubuntu 24.04 `t2.micro`, identificadas pelas tags `Name=staging` e `Name=production`;
+- Security Group com entrada pública **TCP/443** e saída permitida;
+- Repositório ECR com tags imutáveis e varredura no envio de imagens;
+- IAM Roles para EC2 e GitHub Actions;
+- CloudWatch Log Groups `/lacrei/staging` e `/lacrei/production`, dashboard e alarmes;
+- Tópico SNS e assinatura de e-mail para alertas de infraestrutura.
+
+O arquivo `infra/user_data.sh` instala Docker, AWS CLI v2, SSM Agent e Caddy.
+
+### Validar o serviço
+
+Depois que os registros DuckDNS apontarem para as instâncias corretas e a aplicação tiver sido implantada:
 
 ```bash
-AWS_PROFILE=seu-perfil terraform plan
-AWS_PROFILE=seu-perfil terraform apply
+curl --fail https://pedro-lacrei-staging.duckdns.org/status
+curl --fail https://pedro-lacrei-production.duckdns.org/status
 ```
 
-O Terraform cria:
+As respostas devem apresentar `status: "ok"` e o nome do ambiente correspondente.
 
-- duas instâncias **EC2 `t2.micro`**, com tags `Name=staging` e `Name=production`;
-- Security Group com entrada **TCP/80** e saída liberada;
-- repositório ECR `lacrei-api`, com **tags imutáveis** e varredura de imagem no push;
-- IAM Role/instance profile das EC2, com acesso de leitura ao ECR e integração ao SSM;
-- usuário IAM `lacrei-github-actions` e políticas de publicação/deploy/notificação;
-- grupo de logs `/lacrei/deploy`, alarmes e dashboard CloudWatch.
-
-O `user_data.sh` prepara as instâncias Ubuntu com Docker, AWS CLI, utilitários necessários e SSM Agent. O `deploy.sh` também verifica dependências antes de executar.
-
-**Atenção:** `user_data_replace_on_change = true` está habilitado. Alterar o User Data pode causar **substituição das instâncias** no próximo `terraform apply`, mudando IDs e IPs públicos. Revise o plano antes de confirmar.
-
-### Credenciais no GitHub
-
-Configure em **Settings → Secrets and variables → Actions**:
-
-| Secret | Uso |
-| --- | --- |
-| `AWS_ACCESS_KEY_ID` | Credencial do usuário IAM usado pelo GitHub Actions |
-| `AWS_SECRET_ACCESS_KEY` | Chave secreta correspondente |
-| `SNS_PHONE_NUMBER` | Opcional; número E.164 para SMS de deploy concluído |
-
-O Terraform cria o **usuário IAM e suas políticas**, mas o fornecimento das access keys ao GitHub Secrets deve ser realizado separadamente. Não coloque chaves no código ou no README.
-
-As instâncias EC2 **não usam essas chaves**: elas recebem credenciais temporárias de sua IAM Role.
-
-### Validar os ambientes
-
-Localize os IPs atuais das instâncias pelo console EC2 ou AWS CLI depois de um deploy bem-sucedido e faça uma requisição para o endpoint status:
-
-```bash
-curl --fail http://IP_PUBLICO_STAGING/status
-curl --fail http://IP_PUBLICO_PRODUCTION/status
-```
-
-Resposta esperada: `{"status":"ok"}`. Os IPs podem mudar quando o Terraform recriar instâncias.
-
-## 4. Fluxo de CI/CD
+## 4. CI/CD
 
 ### CI — `.github/workflows/ci.yml`
 
-Executado em pull requests e pushes para `master`:
+O CI é executado em *pull requests* e *pushes* para `master`:
 
-1. **Test:** faz build local da imagem, inicia o container, aguarda o `HEALTHCHECK` do Docker e consulta `/status`.
-2. **Publish:** apenas em **push na `master`**, após sucesso dos testes, autentica na AWS, publica a imagem no ECR com tag igual ao **SHA do commit**.
+1. Faz checkout do repositório, executa `npm ci` e `npm test` (Jest);
+2. Constrói a imagem Docker;
+3. Inicializa o container no runner, aguarda o `HEALTHCHECK` e consulta `/status`;
+4. **Somente após um push na `master` com testes aprovados**, autentica na AWS por OIDC e publica a imagem no ECR com a tag correspondente a `github.sha`.
 
-O uso do SHA identifica precisamente o código associado à imagem; o ECR está configurado para não sobrescrever tags existentes.
+O ECR não permite sobrescrever tags existentes, facilitando a rastreabilidade das versões.
+
+### Autenticação com GitHub Actions OIDC
+
+Os workflows usam `aws-actions/configure-aws-credentials@v4` com `role-to-assume` para obter **credenciais temporárias** por OIDC. A trust policy da role está vinculada ao repositório e à branch `master`.
 
 ### CD — `.github/workflows/cd.yml`
 
-O CD é iniciado automaticamente quando o workflow **CI** termina com sucesso após um push na `master`. Também pode ser acionado manualmente com `workflow_dispatch`.
+O CD inicia automaticamente depois de um CI bem-sucedido decorrente de push na `master`. Também aceita execução manual pelo GitHub Actions, opcionalmente informando uma `image_tag` já disponível no ECR.
 
-O processo:
+1. Autentica na AWS via OIDC;
+2. Localiza as instâncias por tag (`Name=staging` e `Name=production`), evitando IDs fixos;
+3. Aguarda cada instância ficar **Online** no SSM;
+4. Envia `deploy.sh` pelo SSM Run Command e acompanha o resultado;
+5. Conclui **staging antes de iniciar production**; se a primeira etapa falhar, a segunda não começa.
 
-1. Obtém a tag da imagem (SHA do CI ou `image_tag` informado manualmente);
-2. Autentica na AWS com GitHub Secrets;
-3. Localiza as EC2 em execução por `Name=staging` e `Name=production`, **sem fixar IDs no YAML**;
-4. Aguarda as instâncias aparecerem como **Online** no SSM;
-5. Envia `.github/workflows/deploy.sh` via **SSM Run Command**;
-6. A EC2 faz login no ECR com sua IAM Role, executa `docker pull`, substitui o container e valida o serviço;
-7. O workflow consulta o resultado das invocações SSM e **só avança para produção após a etapa de staging concluir com sucesso**;
-8. Opcionalmente, publica uma notificação de sucesso por SNS/SMS.
+O workflow utiliza a mesma tag de imagem para staging e production.
 
-O mesmo `image_tag` é usado nos dois ambientes.
+### Blue-green — `.github/workflows/deploy.sh`
 
-**Validação do deploy:** o script aguarda o estado do container e testa `http://localhost/status`. O Dockerfile define um `HEALTHCHECK`. A validação é local à EC2; ela não substitui uma verificação HTTPS externa.
+O script obtém a imagem no ECR e identifica o slot ativo lendo `/etc/caddy/Caddyfile`:
+
+| Slot | Container | Porta na EC2 |
+| --- | --- | --- |
+| Blue | `lacrei-api-blue` | `127.0.0.1:3001` |
+| Green | `lacrei-api-green` | `127.0.0.1:3002` |
+
+**Primeiro deploy:** em uma EC2 sem nenhum dos dois containers, o script cria o Blue na porta 3001, espera o estado `healthy` e testa a aplicação. Não há slot anterior disponível para rollback nesse momento.
+
+**Deploys seguintes:** o script mantém o slot ativo atendendo, remove/recria o container do slot inativo com a nova imagem, consulta o health check e faz uma requisição HTTP direta à porta do novo container. Somente após a validação altera o upstream do Caddy, recarrega o serviço e verifica o endpoint HTTPS.
+
+- Uma falha **antes da troca de tráfego** impede a promoção do novo container;
+- Se ocorrer falha durante a troca ou sua validação, o script **tenta restaurar o Caddyfile anterior**.
+
+As verificações de saúde avaliam disponibilidade, mas **não conferem explicitamente se o endpoint HTTPS retornou o SHA esperado**.
 
 ## 5. Rollback
 
-O projeto oferece **rollback manual acionado pelo GitHub Actions**, reutilizando o workflow de CD e uma imagem anterior ainda disponível no ECR.
+### Rollback manual do slot — `.github/workflows/rollback.yml`
 
-### Procedimento
+1. Abra **GitHub → Actions → Rollback → Run workflow**;
+2. Selecione `staging` ou `production` no campo `environment`;
+3. Execute o workflow;
+4. Confirme que o endpoint HTTPS do ambiente continua respondendo.
 
-1. Abra o repositório no GitHub e acesse **Actions → CD**.
-2. Selecione **Run workflow**.
-3. Preencha `image_tag` com o **SHA/tag de uma imagem anterior** armazenada no ECR.
-4. Inicie o workflow e acompanhe os logs.
-5. Confirme o resultado do deploy em **staging** e, em seguida, **production**.
-6. Valide `/status` nos dois ambientes e confira os logs do SSM/CloudWatch.
+O `rollback.sh` identifica a porta ativa no Caddyfile, verifica se o **outro container** existe, está `healthy` e responde diretamente em `/status`. Se estiver apto, altera o upstream do Caddy, recarrega o serviço e valida o domínio HTTPS. Se a validação após a troca falhar, **tenta restaurar a configuração anterior**.
 
-O CD utiliza a mesma rotina de deploy para uma versão nova ou anterior. Assim, **não é necessário reconstruir a imagem** para restaurar uma versão publicada.
+**Esse rollback alterna entre dois containers existentes: não reconstrói imagens e não mantém um histórico completo de versões.** Após a recriação da EC2 e seu primeiro deploy, ainda não há um segundo slot para retornar. Executar rollback duas vezes, com ambos os containers saudáveis, pode alternar de volta ao ponto de partida.
 
-Para confirmar a versão restaurada, consulte a imagem do container via SSM (`docker inspect lacrei-api`) e compare com a tag solicitada, além de validar `/status`.
+### Reimplantar uma versão específica
 
-## 6. Observabilidade e logs
+Caso uma versão antiga não esteja mais presente em nenhum slot, é possível executar manualmente **Actions → CD → Run workflow**, informando em `image_tag` o SHA de uma imagem ainda existente no ECR. Isso realiza um novo deploy da imagem escolhida (staging e depois production); é diferente do rollback instantâneo por troca de slot.
 
-### Logs de deploy
-
-O CD habilita saída do SSM para o grupo **`/lacrei/deploy`** no CloudWatch Logs, com retenção de **14 dias**. O GitHub Actions também exibe o andamento e o resultado das invocações.
+## 6. Observabilidade e alertas
 
 ### Logs da aplicação
 
-A aplicação escreve em stdout/stderr do container. Para consultar, execute remotamente via SSM:
+Os containers utilizam o driver de logging **`awslogs`**, enviando stdout/stderr para:
 
-```bash
-docker logs --tail 200 lacrei-api
-```
+<img width="1599" height="810" alt="Captura de tela de 2026-10-18 18-31-41" src="https://github.com/user-attachments/assets/e63d5f86-39b7-4db2-854c-bf9e722dcc2d" />
+<img width="1599" height="810" alt="Captura de tela de 2026-10-18 18-32-09" src="https://github.com/user-attachments/assets/cad55488-5e71-45e5-b41e-b0ce2e985ee7" />
 
-**Importante:** os logs da aplicação **não são enviados automaticamente ao CloudWatch** nesta implementação. Eles são consultados no Docker da instância.
+| Ambiente | CloudWatch Log Group | Retenção Terraform |
+| --- | --- | --- |
+| Staging | `/lacrei/staging` | 7 dias |
+| Production | `/lacrei/production` | 30 dias |
 
 ### Métricas e alarmes
 
-O dashboard **`lacrei-api`** inclui CPU e status checks das instâncias de staging e produção.
+O dashboard CloudWatch **`lacrei-api`** apresenta CPU e status checks das duas EC2.
 
-O Terraform configura, para cada ambiente:
+<img width="1912" height="804" alt="Captura de tela de 2026-10-18 18-33-21" src="https://github.com/user-attachments/assets/fbc10f6d-3dec-4c47-bf33-d0614da76b68" />
 
-- alarme de CPU média **≥ 80%** por dois períodos de **5 minutos**;
-- alarme de falha de status da EC2 em dois períodos de **1 minuto**.
+Há dois alarmes por ambiente:
 
-Os alarmes existem no CloudWatch, mas o código fornecido **não associa ações SNS a eles**. A notificação SNS atual é um **SMS opcional de sucesso do deploy**, não um alerta automático desses alarmes.
+- **CPU alta:** média de CPU ≥ 80% em dois períodos de 5 minutos;
+- **Falha de status da EC2:** valor ≥ 1 em dois períodos de 5 minutos.
+  
+Ambos têm `alarm_actions` associado ao tópico SNS **`lacrei-alerts`**, com assinatura por e-mail configurada no Terraform (`alert_email`).
 
-## 7. Segurança e limitações
+<img width="1599" height="810" alt="Captura de tela de 2026-10-18 18-32-45" src="https://github.com/user-attachments/assets/ae38ec1c-af0e-4e33-85c2-735b29c96436" />
 
-### Checklist de segurança
+## 7. Segurança
 
-| Controle | Situação | Observação |
+| Controle ou decisão | Situação atual |
+| --- | --- |
+| Credenciais AWS nos workflows | **OIDC** com credenciais temporárias; sem access keys permanentes |
+| Credenciais das EC2 | IAM Role / instance profile |
+| Permissões de deploy | Políticas IAM para ECR, descoberta das EC2, SSM e notificações |
+| Execução da API | Container executa com `USER node`, sem root |
+| Armazenamento de imagens | ECR com tags imutáveis e `scan_on_push` |
+| Acesso administrativo às EC2 | SSM Run Command; nenhuma regra SSH é declarada no Security Group |
+| Tráfego externo da API | HTTPS no Caddy pela porta 443 |
+| Containers Blue/Green | Portas 3001/3002 publicadas somente em `127.0.0.1` |
+| Rollback | Manual, por ambiente, com validação do slot de destino |
+
+
+## 8. Decisões técnicas e aprendizados
+
+| Desafio | Solução adotada | Justificativa |
 | --- | --- | --- |
-| Credenciais AWS fora do repositório | ✅ | GitHub Secrets |
-| Permissões IAM separadas para CI/CD e EC2 | ✅ | Usuário para pipeline; role para EC2 |
-| Publicação ECR restrita ao repositório da aplicação | ✅ | Política IAM específica |
-| ECR com tags imutáveis | ✅ | Evita sobrescrita de tags |
-| Verificação de imagens no push | ✅ | `scan_on_push = true` |
-| Deploy remoto sem abrir SSH | ✅ | AWS Systems Manager |
-| Descoberta de EC2 por tags | ✅ | Não depende de IDs fixos |
-| Teste do container antes de publicar | ✅ | CI e Docker HEALTHCHECK |
-| Logs de deploy acessíveis | ✅ | GitHub Actions e CloudWatch |
-| Rollback em produção | ✅ | image_tag do ECR e run workflow do Github Actions |
-| HTTPS/TLS público | ❌ | **Não implementado** |
+| Reconstrução de EC2 altera IDs | Buscar instâncias por tags de ambiente | Evitar referências fixas nos workflows |
+| Execução remota sem SSH | SSM Run Command | Reduzir portas expostas e centralizar a execução |
+| Credenciais permanentes no GitHub | Substituição por OIDC e IAM Role | Usar credenciais temporárias |
+| Identificar exatamente uma imagem | Tag SHA no ECR, com imutabilidade | Rastreabilidade e redeploy de versões |
+| Garantir sequência de implantação | Staging antes de production | Não avançar quando staging falhar |
+| Reduzir risco de troca de versão | Blue-green com Caddy e health checks | Validar um slot antes de promovê-lo |
+| Retornar rapidamente à versão anterior | Workflow de rollback por ambiente | Trocar o upstream do proxy sem novo build |
+| Diagnosticar problemas | CloudWatch, saída do SSM e verificações de saúde | Aumentar a observabilidade da aplicação e dos deploys |
 
-## 8. Problemas técnicos, decisões e aprendizados
+## 9. Registro de problemas e correções
 
-Esta seção documenta decisões verificáveis na implementação e pontos de atenção identificados durante o desenvolvimento. **Os itens abaixo não devem ser interpretados como um histórico exaustivo de incidentes**, pois nem todos os erros e suas soluções estão registrados no repositório.
+| Problema encontrado | Correção aplicada |
+| --- | --- |
+| O CD não era acionado depois do CI | Correção do nome do workflow em `workflow_run` e inclusão de disparo manual |
+| `aws` ou `docker` indisponíveis em instâncias novas | Instalação por `user_data.sh`, com AWS CLI v2 pelo instalador oficial |
+| API ainda não respondia durante a inicialização | Espera pelo Docker HEALTHCHECK e requisição direta ao container |
+| Uma EC2 nova não tinha slot anterior de deploy | Implementação do bootstrap do Blue na porta 3001 |
+| Deploys inicialmente não tinham HTTPS | Configuração do Caddy por ambiente com certificados TLS automáticos |
+| Verificação de saúde pela URL pública antes da troca de slot | Verificação direta em `127.0.0.1:3001/3002`, mantendo HTTPS para a validação posterior ao Caddy |
 
-| Situação / desafio | Decisão adotada | Motivo |
-| --- | --- | --- |
-| Instâncias EC2 podem ser recriadas pelo Terraform | Descoberta por tags `Name=staging` e `Name=production` | Evitar IDs fixos no pipeline |
-| Executar deploy remoto sem abrir SSH | SSM Run Command | Reduzir superfície de acesso administrativo |
-| Autenticar o pipeline na AWS | Usuário IAM + GitHub Secrets | Integrar com Actions sem credenciais no código |
-| Autenticar as EC2 no ECR | IAM Role + instance profile | Evitar access keys persistentes nas máquinas |
-| Distinguir versões e possibilitar restauração | Tag de imagem com SHA e imutabilidade no ECR | Rastreabilidade e rollback por versão |
-| Garantir a ordem dos ambientes | Staging antes de production, com checagem do SSM | Interromper promoção quando staging falhar |
-| Preparar instâncias recém-criadas | `user_data.sh` e verificação de dependências no deploy | Reproduzir o ambiente de execução |
-| Diagnosticar falhas de container | `docker inspect`, `docker logs`, health check e `/status` | Melhorar visibilidade das falhas |
-| Tornar o deploy auditável | Saída do SSM no CloudWatch Logs | Facilitar diagnóstico posterior |
-| HTTPS sem domínio/certificado configurado | Documentar a limitação e propor ALB + ACM | Falta de domínio próprio 😢 |
+---
 
-## 9. Registro de erros encontrados
-
-Durante o desenvolvimento, alguns problemas apareceram no fluxo real de deploy e direcionaram ajustes na implementação:
-
-| Erro observado | Causa identificada | Correção aplicada |
-| --- | --- | --- |
-| O CD não era disparado após o CI | O workflow de CD estava escutando um nome de workflow diferente do CI real | Ajuste do `workflow_run.workflows` para `CI` e inclusão de `workflow_dispatch` para execução manual |
-| `No SSM managed instance found for tag Name=staging` | A busca inicial dependia de instâncias já registradas no SSM; instâncias recém-criadas podiam ainda não estar online no SSM | O CD passou a localizar EC2 por tag via `ec2:DescribeInstances`, esperar `PingStatus=Online` no SSM e só então enviar o comando |
-| `/tmp/deploy.sh: line 12: aws: command not found` | A instância não tinha AWS CLI instalada para executar o login no ECR | `user_data.sh` e `deploy.sh` passaram a instalar/verificar dependências antes do deploy |
-| `Package 'awscli' has no installation candidate` | O pacote `awscli` não estava disponível no repositório APT usado pela imagem Ubuntu Noble | Substituição da instalação via `apt` pelo instalador oficial do AWS CLI v2 usando `curl` e `unzip` |
-| `/tmp/deploy.sh: line 13: docker: command not found` | Instância criada sem Docker disponível no momento do deploy | Instalação de `docker.io` no `user_data.sh` e verificação de dependência também dentro do `deploy.sh` |
-| `curl: (56) Recv failure: Connection reset by peer` na validação local | A validação HTTP podia ocorrer antes de o container estar saudável ou sem informações suficientes para diagnosticar a falha | O deploy passou a aguardar o estado do container, usar retries no `curl` e imprimir `docker ps`, `docker inspect` e `docker logs` em caso de erro |
-| Notificação de deploy concluído | Não havia aviso fora do GitHub Actions quando staging e production terminavam com sucesso | Inclusão opcional de SMS via SNS usando o secret `SNS_PHONE_NUMBER` |
-
-Também foi considerada uma migração para ECS Fargate para reduzir a dependência de preparação manual das EC2, mas a abordagem foi descartada para manter o escopo mais simples e compatível com a infraestrutura já construída.
+**Resumo:** o projeto demonstra um fluxo de entrega reproduzível para uma API simples, com testes em CI, autenticação federada por OIDC, deploy sequencial em dois ambientes, estratégia blue-green, rollback manual, HTTPS e recursos de observabilidade.
