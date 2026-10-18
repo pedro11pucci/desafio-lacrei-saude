@@ -58,7 +58,7 @@ check_health() {
       "$name" 2>/dev/null) || status="missing"
 
     if [[ "$status" == "healthy" ]] &&
-       curl -fsS "https://$DOMAIN/status" >/dev/null; then
+       curl -fsS "http://127.0.0.1:$port/status" >/dev/null; then
       return 0
     fi
 
@@ -112,7 +112,7 @@ if ! docker container inspect lacrei-api-blue >/dev/null 2>&1 &&
   start_container "lacrei-api-blue" 3001
   check_health "lacrei-api-blue" 3001
 
-  curl -fsS "http://127.0.0.1/status" >/dev/null
+  curl -fsS "https://$DOMAIN/status" >/dev/null
 
   echo "Initial $ENVIRONMENT deployment completed!"
   echo "Active port: 3001"
@@ -144,7 +144,7 @@ sed -i "s|reverse_proxy 127.0.0.1:$ACTIVE_PORT|reverse_proxy 127.0.0.1:$NEXT_POR
 caddy validate --config "$CADDYFILE" --adapter caddyfile
 systemctl reload caddy
 
-curl -fsS "http://127.0.0.1/status" >/dev/null
+curl -fsS "https://$DOMAIN/status" >/dev/null
 
 trap - ERR
 rm -f "$BACKUP"
