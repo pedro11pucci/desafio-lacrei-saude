@@ -41,7 +41,7 @@ jobs:
 
           SCRIPT=$(base64 -w 0 .github/workflows/rollback.sh)
 
-          COMMAND="printf '%s' '$SCRIPT' | base64 -d > /tmp/lacrei-rollback.sh '${{ inputs.environment }}' && bash /tmp/lacrei-rollback.sh '${{ inputs.environment }}'"
+          COMMAND="printf '%s' '$SCRIPT' | base64 -d > /tmp/lacrei-rollback.sh && bash /tmp/lacrei-rollback.sh '${{ inputs.environment }}'"
 
           jq -n --arg command "$COMMAND" \
             '{commands: [$command]}' > rollback-parameters.json
