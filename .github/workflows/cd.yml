@@ -153,7 +153,7 @@ jobs:
           }
 
           deploy_environment staging
-        # deploy_environment production
+          deploy_environment production
 
       - name: Notify successful deploy via SNS
         env:

@@ -1,10 +1,10 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
-apt-get install -y ca-certificates curl docker.io snapd unzip
+apt-get install -y ca-certificates curl docker.io snapd unzip caddy
 
 if ! command -v aws >/dev/null 2>&1; then
   tmp_dir=$(mktemp -d)
@@ -22,3 +22,13 @@ if ! snap list amazon-ssm-agent >/dev/null 2>&1; then
 fi
 
 systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent.service
+
+cat > /etc/caddy/Caddyfile <<'EOF'
+:80 {
+    reverse_proxy 127.0.0.1:3001
+}
+EOF
+
+caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+systemctl enable --now caddy
+systemctl restart caddy
