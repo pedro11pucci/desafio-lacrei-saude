@@ -41,7 +41,7 @@ start_container() {
     --log-driver=awslogs \
     --log-opt awslogs-region="$AWS_REGION" \
     --log-opt awslogs-group="$LOG_GROUP" \
-    --log-opt awslogs-stream="$name" \
+    --log-opt awslogs-stream="lacrei-api" \
     "$IMAGE"
 }
 

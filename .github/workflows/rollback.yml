@@ -1,5 +1,5 @@
 
-name: Manual Rollback
+name: Rollback
 
 on:
   workflow_dispatch:
