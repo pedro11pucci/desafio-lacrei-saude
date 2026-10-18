@@ -1,0 +1,73 @@
+
+name: Manual Rollback
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: lacrei-deploy
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    name: Rollback staging
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::892013083652:role/lacrei-github-actions-role
+          aws-region: us-east-1
+
+      - name: Rollback staging via SSM
+        run: |
+          set -euo pipefail
+
+          SCRIPT=$(base64 -w 0 .github/workflows/rollback.sh)
+
+          COMMAND="printf '%s' '$SCRIPT' | base64 -d > /tmp/lacrei-rollback.sh && bash /tmp/lacrei-rollback.sh"
+
+          jq -n --arg command "$COMMAND" \
+            '{commands: [$command]}' > rollback-parameters.json
+
+          INSTANCE_ID=$(aws ec2 describe-instances \
+            --region us-east-1 \
+            --filters \
+              "Name=tag:Name,Values=staging" \
+              "Name=instance-state-name,Values=running" \
+            --query 'Reservations[].Instances[].InstanceId' \
+            --output text)
+
+          if [[ -z "$INSTANCE_ID" || "$INSTANCE_ID" == "None" || "$INSTANCE_ID" == *$'\t'* ]]; then
+            echo "Expected exactly one running staging instance"
+            exit 1
+          fi
+
+          COMMAND_ID=$(aws ssm send-command \
+            --region us-east-1 \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --parameters file://rollback-parameters.json \
+            --query 'Command.CommandId' \
+            --output text)
+
+          echo "SSM command: $COMMAND_ID"
+
+          aws ssm wait command-executed \
+            --region us-east-1 \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$INSTANCE_ID"
+
+          aws ssm get-command-invocation \
+            --region us-east-1 \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --query '{Status:Status,Output:StandardOutputContent,Errors:StandardErrorContent}'
