@@ -24,7 +24,7 @@ fi
 systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent.service
 
 cat > /etc/caddy/Caddyfile <<'EOF'
-:80 {
+${domain} {
     reverse_proxy 127.0.0.1:3001
 }
 EOF

@@ -3,6 +3,14 @@ name: Rollback
 
 on:
   workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to rollback"
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
 
 concurrency:
   group: lacrei-deploy
@@ -33,7 +41,7 @@ jobs:
 
           SCRIPT=$(base64 -w 0 .github/workflows/rollback.sh)
 
-          COMMAND="printf '%s' '$SCRIPT' | base64 -d > /tmp/lacrei-rollback.sh && bash /tmp/lacrei-rollback.sh"
+          COMMAND="printf '%s' '$SCRIPT' | base64 -d > /tmp/lacrei-rollback.sh '${{ inputs.environment }}' && bash /tmp/lacrei-rollback.sh '${{ inputs.environment }}'"
 
           jq -n --arg command "$COMMAND" \
             '{commands: [$command]}' > rollback-parameters.json
@@ -41,7 +49,7 @@ jobs:
           INSTANCE_ID=$(aws ec2 describe-instances \
             --region us-east-1 \
             --filters \
-              "Name=tag:Name,Values=staging" \
+              "Name=tag:Name,Values=${{ inputs.environment }}" \
               "Name=instance-state-name,Values=running" \
             --query 'Reservations[].Instances[].InstanceId' \
             --output text)

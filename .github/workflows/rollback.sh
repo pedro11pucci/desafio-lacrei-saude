@@ -4,6 +4,15 @@ set -euo pipefail
 
 CADDYFILE="/etc/caddy/Caddyfile"
 
+ENVIRONMENT="${1:-staging}"
+
+if [[ "$ENVIRONMENT" != "staging" && "$ENVIRONMENT" != "production" ]]; then
+  echo "Invalid environment: $ENVIRONMENT"
+  exit 1
+fi
+
+DOMAIN="pedro-lacrei-$ENVIRONMENT.duckdns.org"
+
 exec 9>/var/lock/lacrei-deploy.lock
 flock -n 9 || {
   echo "Another deploy or rollback is running"
@@ -63,7 +72,7 @@ caddy validate --config "$CANDIDATE" --adapter caddyfile
 cp "$CANDIDATE" "$CADDYFILE"
 
 if ! systemctl reload caddy ||
-   ! curl -fsS http://127.0.0.1/status >/dev/null; then
+   ! curl -fsS https://$DOMAIN/status >/dev/null; then
   echo "Rollback switch failed"
   restore_config
   rm -f "$BACKUP" "$CANDIDATE"

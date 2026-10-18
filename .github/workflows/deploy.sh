@@ -11,6 +11,8 @@ fi
 IMAGE_TAG="${1}"
 ENVIRONMENT="${2}"
 
+DOMAIN="pedro-lacrei-$ENVIRONMENT.duckdns.org"
+
 AWS_REGION="us-east-1"
 ECR_REGISTRY="892013083652.dkr.ecr.us-east-1.amazonaws.com"
 IMAGE="$ECR_REGISTRY/lacrei-api:$IMAGE_TAG"
@@ -56,7 +58,7 @@ check_health() {
       "$name" 2>/dev/null) || status="missing"
 
     if [[ "$status" == "healthy" ]] &&
-       curl -fsS "http://127.0.0.1:$port/status" >/dev/null; then
+       curl -fsS "https://$DOMAIN/status" >/dev/null; then
       return 0
     fi
 
